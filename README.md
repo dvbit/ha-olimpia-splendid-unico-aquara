@@ -9,7 +9,7 @@ Custom [Home Assistant](https://www.home-assistant.io/) integration for **Olimpi
 
 - **HVAC modes**: Heat, Cool, Dry, Fan Only, Auto
 - **Fan speed**: Low, Medium, High, Auto
-- **Swing**: On / Off
+- **Swing**: stateless toggle button (the firmware does not report flap state, so the integration mirrors the official app's toggle-button design)
 - **Target temperature** control
 - **Room temperature** reading
 - **Scheduler** switch entity

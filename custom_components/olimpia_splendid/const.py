@@ -29,9 +29,3 @@ FAN_DEVICE_TO_HA = {
 }
 
 FAN_HA_TO_DEVICE = {v: k for k, v in FAN_DEVICE_TO_HA.items()}
-
-# Swing
-SWING_DEVICE_TO_HA = {
-    0: "off",
-    1: "on",
-}

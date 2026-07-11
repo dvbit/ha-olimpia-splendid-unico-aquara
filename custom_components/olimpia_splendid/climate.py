@@ -21,7 +21,6 @@ from .const import (
     MODE_HA_TO_DEVICE,
     FAN_DEVICE_TO_HA,
     FAN_HA_TO_DEVICE,
-    SWING_DEVICE_TO_HA,
 )
 from .coordinator import OlimpiaCoordinator
 from .olimpia.enums import Mode, Fan
@@ -54,14 +53,12 @@ class OlimpiaClimateEntity(CoordinatorEntity[OlimpiaCoordinator], ClimateEntity)
         HVACMode.AUTO,
     ]
     _attr_fan_modes = ["low", "medium", "high", "auto"]
-    _attr_swing_modes = ["off", "on"]
     _attr_min_temp = 15
     _attr_max_temp = 30
     _attr_target_temperature_step = 1.0
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE
         | ClimateEntityFeature.FAN_MODE
-        | ClimateEntityFeature.SWING_MODE
     )
 
     def __init__(
@@ -103,11 +100,6 @@ class OlimpiaClimateEntity(CoordinatorEntity[OlimpiaCoordinator], ClimateEntity)
     def fan_mode(self) -> str | None:
         fan = self._data.get("fan")
         return FAN_DEVICE_TO_HA.get(fan)
-
-    @property
-    def swing_mode(self) -> str | None:
-        flap = self._data.get("flap")
-        return SWING_DEVICE_TO_HA.get(flap, "off")
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -160,12 +152,3 @@ class OlimpiaClimateEntity(CoordinatorEntity[OlimpiaCoordinator], ClimateEntity)
             )
             if ok:
                 self._optimistic_update(fan=device_fan)
-
-    async def async_set_swing_mode(self, swing_mode: str) -> None:
-        swing = swing_mode == "on"
-        current_flap = self.coordinator._tracked_flap
-        ok = await self.coordinator.async_send_command(
-            "toggle_flap", swing, current_flap
-        )
-        if ok:
-            self._optimistic_update(flap=1 if swing else 0)
