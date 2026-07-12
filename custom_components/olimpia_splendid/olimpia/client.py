@@ -19,6 +19,9 @@ class OlimpiaClient:
     READ_SIZE = 40
     DEFAULT_TIMEOUT = 6.0
     FRAME_SIZE = 18
+    # Attesa conferma post POWER_ON — stesso timeout del dialog modale
+    # dell'app ufficiale (DetailActivity, 25000ms)
+    POWER_ON_CONFIRM_TIMEOUT = 25.0
 
     def __init__(self, host: str, port: int = PORT, hex_encoding: bool = True):
         self.host = host
@@ -925,12 +928,77 @@ class OlimpiaClient:
         ack = self._send_command(Opcode.POWER_ON)
         return ack is not None and ack.success
 
-    def power_on_and_set_mode(self, mode: Mode) -> bool:
-        """Power on + set mode in una singola sessione TCP con un solo COMMIT."""
-        ack = self._send_command(Opcode.POWER_ON)
-        if not ack or not ack.success:
+    def _wait_power_confirm(self, timeout: float = POWER_ON_CONFIRM_TIMEOUT) -> bool:
+        """Attende il ClimaStateEvent (0x61) con power=1 dopo un POWER_ON.
+
+        L'app ufficiale blocca la UI con un dialog modale (max 25s) finché
+        il device non pubblica lo stato post-accensione: i SET inviati
+        prima della conferma vengono scartati dal firmware degli inverter
+        (issue #12). GET_MODE come stimolo del push — un PING extra
+        farebbe beeppare alcune unità (issue #2)."""
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            self._last_clima_event = None
+            self._poll_for_events(min(2.5, remaining))
+            ce = self._last_clima_event
+            if ce and ce.get('power'):
+                self._log("[power_on] Conferma power=1 ricevuta")
+                return True
+            if time.monotonic() < deadline:
+                self.get_mode()
+        self._log_warn(f"[power_on] Nessuna conferma power=1 entro {timeout:.0f}s")
+        return False
+
+    def apply_settings(self, power_on: bool = False, mode: Optional[Mode] = None,
+                       fan: Optional[Fan] = None,
+                       temp: Optional[float] = None) -> bool:
+        """Applica più settaggi in un'unica sessione TCP con un solo COMMIT.
+
+        Come l'app ufficiale (issue #12): dopo POWER_ON attende la conferma
+        del device prima di inviare i SET; i SET si accumulano sul device e
+        vengono applicati insieme dal COMMIT finale."""
+        if power_on:
+            ack = self._send_command(Opcode.POWER_ON)
+            if not ack or not ack.success:
+                return False
+            if self._wait_power_confirm():
+                # margine post-conferma: nell'app c'è sempre la latenza
+                # umana tra sblocco della UI e il tap successivo
+                time.sleep(1.0)
+            # senza conferma si procede comunque: il POWER_ON è stato
+            # ACKato e i SET restano il best effort
+
+        sets = []
+        if mode is not None:
+            sets.append((Opcode.SET_MODE, bytes([int(mode)])))
+        if fan is not None:
+            sets.append((Opcode.SET_FAN, bytes([int(fan)])))
+        if temp is not None:
+            sets.append((Opcode.SET_TEMPERATURE,
+                         int_to_le(int(math.ceil(temp)) * 10, 2)))
+        if not sets:
+            return True
+
+        ok = True
+        for opcode, value in sets:
+            ack = self._send_command(opcode, value)
+            if not ack or not ack.success:
+                self._log_warn(f"[apply] SET {Opcode.name(opcode)} fallito: {ack}")
+                ok = False
+
+        commit_ack = self._send_command(Opcode.COMMIT)
+        if not commit_ack or not commit_ack.success:
+            self._log_warn(f"[apply] COMMIT fallito: {commit_ack}")
             return False
-        return self._set_command(Opcode.SET_MODE, bytes([int(mode)]))
+        # Post-commit: attendi il 0x61 con lo stato applicato
+        self._last_clima_event = None
+        self._poll_for_events(3.0)
+        if self._last_clima_event:
+            self._log(f"  Post-commit state: {self._last_clima_event}")
+        return ok
 
     def power_off(self) -> bool:
         return self._set_command(Opcode.POWER_OFF)

@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from homeassistant.components.climate import (
+    ATTR_HVAC_MODE,
     ClimateEntity,
     ClimateEntityFeature,
     HVACMode,
@@ -112,43 +113,44 @@ class OlimpiaClimateEntity(CoordinatorEntity[OlimpiaCoordinator], ClimateEntity)
             data.update(fields)
             self.coordinator.async_set_updated_data(data)
 
-    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+    def _hvac_settings(self, hvac_mode: HVACMode) -> tuple[dict, dict]:
+        """Traduce un HVACMode in settaggi batch + campi optimistic."""
         if hvac_mode == HVACMode.OFF:
-            ok = await self.coordinator.async_send_command(
-                "power_off_and_disable_scheduler"
-            )
-            if ok:
-                self._optimistic_update(power=False, scheduler=False)
-        else:
-            device_mode = MODE_HA_TO_DEVICE.get(hvac_mode)
-            if device_mode is None:
-                return
-            if not self._data.get("power"):
-                # Sessione unica: power_on + set_mode con un solo COMMIT
-                ok = await self.coordinator.async_send_command(
-                    "power_on_and_set_mode", Mode(device_mode)
-                )
-            else:
-                ok = await self.coordinator.async_send_command(
-                    "set_mode", Mode(device_mode)
-                )
-            if ok:
-                self._optimistic_update(power=True, mode=device_mode)
+            return {"power": False}, {"power": False, "scheduler": False}
+        device_mode = MODE_HA_TO_DEVICE.get(hvac_mode)
+        if device_mode is None:
+            return {}, {}
+        settings: dict[str, Any] = {"mode": Mode(device_mode)}
+        if not self._data.get("power"):
+            settings["power"] = True
+        return settings, {"power": True, "mode": device_mode}
+
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        settings, optimistic = self._hvac_settings(hvac_mode)
+        if not settings:
+            return
+        # Optimistic subito: il batch può attendere la conferma del
+        # power-on fino a 25s; lo stato reale (0x61) arriva a fine batch
+        self._optimistic_update(**optimistic)
+        await self.coordinator.async_queue_setting(**settings)
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
+        settings: dict[str, Any] = {}
+        optimistic: dict[str, Any] = {}
+        hvac_mode = kwargs.get(ATTR_HVAC_MODE)
+        if hvac_mode is not None:
+            settings, optimistic = self._hvac_settings(hvac_mode)
         temp = kwargs.get(ATTR_TEMPERATURE)
-        if temp is not None:
-            ok = await self.coordinator.async_send_command(
-                "set_temperature", temp
-            )
-            if ok:
-                self._optimistic_update(set_temp=temp)
+        if temp is not None and settings.get("power") is not False:
+            settings["temp"] = temp
+            optimistic["set_temp"] = temp
+        if not settings:
+            return
+        self._optimistic_update(**optimistic)
+        await self.coordinator.async_queue_setting(**settings)
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         device_fan = FAN_HA_TO_DEVICE.get(fan_mode)
         if device_fan is not None:
-            ok = await self.coordinator.async_send_command(
-                "set_fan", Fan(device_fan)
-            )
-            if ok:
-                self._optimistic_update(fan=device_fan)
+            self._optimistic_update(fan=device_fan)
+            await self.coordinator.async_queue_setting(fan=Fan(device_fan))

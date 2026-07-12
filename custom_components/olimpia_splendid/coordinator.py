@@ -1,5 +1,6 @@
 """DataUpdateCoordinator per Olimpia Splendid Unico."""
 
+import asyncio
 import logging
 import threading
 import time as _time
@@ -17,6 +18,7 @@ _LOGGER = logging.getLogger(__name__)
 MAX_ATTEMPTS = 3
 RETRY_DELAYS = [3, 5]  # secondi tra tentativi
 COMMAND_GRACE_PERIOD = 5.0  # secondi: salta poll dopo un comando recente
+COALESCE_WINDOW = 2.0  # secondi: raggruppa service call ravvicinate (issue #12)
 
 
 class OlimpiaCoordinator(DataUpdateCoordinator):
@@ -45,6 +47,10 @@ class OlimpiaCoordinator(DataUpdateCoordinator):
         self._last_known_power: bool | None = None
         self._last_known_status: dict | None = None
         self._last_command_time: float = 0
+        # Coalescing settaggi climate (issue #12)
+        self._pending_batch: dict | None = None
+        self._batch_future: asyncio.Future | None = None
+        self._batch_handle: asyncio.TimerHandle | None = None
 
     # --- Persistenza counter ---
 
@@ -228,3 +234,104 @@ class OlimpiaCoordinator(DataUpdateCoordinator):
                 return result
             finally:
                 client.disconnect()
+
+    # --- Coalescing settaggi climate (issue #12) ---
+
+    async def async_queue_setting(self, **settings) -> bool:
+        """Accoda settaggi climate e li applica in un'unica sessione TCP.
+
+        Service call ravvicinate (scene: hvac_mode + fan_mode + temperature)
+        diventavano sessioni TCP separate con COMMIT immediati: sugli
+        inverter i SET inviati durante lo startup post power-on venivano
+        persi (issue #12). Come l'app ufficiale, i SET vengono raggruppati
+        e applicati con un solo COMMIT dopo la conferma del power-on.
+        Chiavi: power (bool: accendi/spegni), mode, fan, temp.
+        """
+        if self._pending_batch is None:
+            self._pending_batch = {}
+            self._batch_future = self.hass.loop.create_future()
+        self._pending_batch.update(settings)
+        # Grace: evita che un poll intermedio sovrascriva lo stato
+        # ottimistico durante la finestra di coalescing
+        self._last_command_time = _time.monotonic()
+        if self._batch_handle:
+            self._batch_handle.cancel()
+        self._batch_handle = self.hass.loop.call_later(
+            COALESCE_WINDOW, self._flush_batch_soon
+        )
+        # shield: la cancellazione di un singolo service call non deve
+        # cancellare il future condiviso dagli altri chiamanti
+        return await asyncio.shield(self._batch_future)
+
+    def _flush_batch_soon(self) -> None:
+        """Callback del debounce (loop thread): avvia il flush del batch."""
+        self.hass.async_create_task(self._async_flush_batch())
+
+    async def _async_flush_batch(self) -> None:
+        batch = self._pending_batch
+        future = self._batch_future
+        self._pending_batch = None
+        self._batch_future = None
+        self._batch_handle = None
+        if batch is None or future is None:
+            return
+        try:
+            ok, confirmed = await self.hass.async_add_executor_job(
+                self._sync_apply_batch, batch
+            )
+        except Exception as err:
+            _LOGGER.warning("Batch %s failed: %s", batch, err)
+            ok, confirmed = False, None
+        if confirmed:
+            # Stato reale post-commit dal device (0x61)
+            self.async_set_updated_data(confirmed)
+        if not future.done():
+            future.set_result(ok)
+        if not ok and not confirmed:
+            # Stato ottimistico probabilmente sbagliato: risincronizza
+            await self.async_request_refresh()
+
+    def _sync_apply_batch(self, batch: dict) -> tuple:
+        with self._tcp_lock:
+            client = self._connect_and_auth(for_command=True)
+            try:
+                if batch.get("power") is False:
+                    ok = client.power_off_and_disable_scheduler()
+                    ignored = set(batch) - {"power"}
+                    if ignored:
+                        _LOGGER.warning(
+                            "Batch: power off richiesto, ignoro %s", ignored
+                        )
+                else:
+                    ok = client.apply_settings(
+                        power_on=bool(batch.get("power")),
+                        mode=batch.get("mode"),
+                        fan=batch.get("fan"),
+                        temp=batch.get("temp"),
+                    )
+                confirmed = (
+                    dict(client._last_clima_event)
+                    if client._last_clima_event else None
+                )
+                if ok:
+                    self._last_command_time = _time.monotonic()
+                else:
+                    # niente grace: lascia che il poll risincronizzi subito
+                    self._last_command_time = 0
+                _LOGGER.debug(
+                    "Batch %s -> ok=%s confirmed=%s", batch, ok, confirmed
+                )
+                return ok, confirmed
+            finally:
+                client.disconnect()
+
+    async def async_shutdown(self) -> None:
+        """Cancella batch pendenti al teardown."""
+        if self._batch_handle:
+            self._batch_handle.cancel()
+            self._batch_handle = None
+        if self._batch_future and not self._batch_future.done():
+            self._batch_future.set_result(False)
+        self._pending_batch = None
+        self._batch_future = None
+        await super().async_shutdown()
