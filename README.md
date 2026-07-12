@@ -5,6 +5,9 @@
 
 Custom [Home Assistant](https://www.home-assistant.io/) integration for **Olimpia Splendid Unico** air conditioners via **local TCP** control (no cloud required). Optional BLE setup for initial pairing and WiFi configuration.
 
+> [!WARNING]
+> **This integration only works with units equipped with the B1015 WiFi board** — the one managed by the *Olimpia Splendid Unico* mobile app, which advertises itself as **"OL01"** over Bluetooth. Units with a different or newer WiFi module (for example those managed by a different Olimpia Splendid app) use a different protocol and **will not be detected**. See [Compatibility](#compatibility) below.
+
 ## Features
 
 - **HVAC modes**: Heat, Cool, Dry, Fan Only, Auto
@@ -127,6 +130,13 @@ See [tools/README.md](tools/README.md) for the full command reference.
 ## Compatibility
 
 Tested on **Olimpia Splendid Unico Pro** with **B1015 WiFi board**. Should work with all Unico models equipped with the same B1015 board (same protocol and app — Olimpia Splendid Unico v1.0.9).
+
+**How to check if your unit is compatible:**
+
+- Your unit is controlled by the **"Olimpia Splendid Unico"** mobile app (not a different Olimpia Splendid app)
+- In pairing mode, the unit advertises over Bluetooth as **"OL01"**
+
+If neither applies, your unit uses a different WiFi module and protocol, and this integration will not work with it — regardless of the model name being "Unico".
 
 ## Protocol Documentation
 
