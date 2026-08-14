@@ -1,0 +1,149 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Olimpia Splendid Unico",
+        "description": "Elige cómo añadir tu dispositivo.",
+        "menu_options": {
+          "ble_scan": "Dispositivo nuevo — configuración BLE (recomendado)",
+          "manual_ip": "Dispositivo ya configurado (introducir IP)"
+        }
+      },
+      "manual_ip": {
+        "title": "Conexión manual",
+        "description": "Introduce la IP del dispositivo. Puedes pegar el JSON de credenciales generado por la herramienta BLE (~/.olimpia/IP.json), o dejarlo vacío para cargarlo del disco.",
+        "data": {
+          "host": "Dirección IP",
+          "port": "Puerto",
+          "credentials_json": "JSON de credenciales (opcional)"
+        }
+      },
+      "ble_scan": {
+        "title": "Búsqueda BLE",
+        "description": "Selecciona el dispositivo Olimpia Splendid encontrado por Bluetooth.",
+        "data": {
+          "ble_device": "Dispositivo"
+        }
+      },
+      "ble_pin": {
+        "title": "Emparejamiento BLE",
+        "description": "Introduce el PIN del dispositivo y las credenciales WiFi.",
+        "data": {
+          "pin": "PIN del dispositivo",
+          "ssid": "SSID WiFi",
+          "wifi_password": "Contraseña WiFi"
+        }
+      },
+      "ble_pairing": {
+        "title": "Emparejamiento en curso",
+        "description": "Emparejamiento BLE y configuración WiFi en curso. Puede tardar hasta 60 segundos."
+      },
+      "flap_sensor": {
+        "title": "Sensor de inclinación de la lama (opcional)",
+        "description": "Selecciona el sensor de vibración/inclinación pegado a la lama y el eje que se debe monitorizar. Déjalo vacío para omitirlo: la integración seguirá funcionando, pero solo con la conmutación ciega de la oscilación. Tras la configuración, ejecuta la calibración desde las opciones de la integración.",
+        "data": {
+          "flap_sensor_device": "Dispositivo sensor de inclinación",
+          "flap_axis": "Eje monitorizado",
+          "flap_invert": "Invertir sentido (ángulo máximo = cerrada)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "No se puede conectar con el dispositivo",
+      "invalid_auth": "Fallo de autenticación",
+      "no_credentials": "No se han encontrado credenciales. Ejecuta primero la herramienta de emparejamiento BLE (ver tools/ en el repositorio), luego pega el contenido JSON arriba o copia el archivo en ~/.olimpia/ en tu máquina HA.",
+      "invalid_credentials_json": "JSON de credenciales no válido. Pega el contenido completo del archivo ~/.olimpia/IP.json generado por la herramienta de emparejamiento BLE.",
+      "ble_no_devices": "No se han encontrado dispositivos Olimpia Splendid por BLE",
+      "ble_pairing_failed": "Fallo en el emparejamiento BLE",
+      "angle_entity_not_found": "No se ha encontrado ninguna entidad de ángulo en ese dispositivo para el eje seleccionado. Comprueba que el sensor expone angle_x / angle_y / angle_z.",
+      "unknown": "Error desconocido"
+    },
+    "abort": {
+      "already_configured": "Dispositivo ya configurado",
+      "ble_pairing_failed": "Fallo en el emparejamiento BLE. Comprueba que el dispositivo está en modo emparejamiento e inténtalo de nuevo."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opciones de Olimpia Splendid Unico",
+        "description": "Elige qué quieres hacer.",
+        "menu_options": {
+          "flap_sensor": "Sensor de inclinación de la lama",
+          "calibrate": "Calibrar la lama"
+        }
+      },
+      "flap_sensor": {
+        "title": "Sensor de inclinación de la lama (opcional)",
+        "description": "Cambia el dispositivo sensor o el eje monitorizado. Cambiar de sensor descarta la calibración existente.",
+        "data": {
+          "flap_sensor_device": "Dispositivo sensor de inclinación",
+          "flap_axis": "Eje monitorizado",
+          "flap_invert": "Invertir sentido (ángulo máximo = cerrada)"
+        }
+      }
+    },
+    "progress": {
+      "calibrating": "Calibración en curso. La lama se moverá repetidamente: tarda entre 3 y 5 minutos. No uses el aire acondicionado mientras tanto."
+    },
+    "error": {
+      "angle_entity_not_found": "No se ha encontrado ninguna entidad de ángulo en ese dispositivo para el eje seleccionado. Comprueba que el sensor expone angle_x / angle_y / angle_z."
+    },
+    "abort": {
+      "calibration_done": "Calibración completada. Se han guardado los topes de recorrido y el tiempo de recorrido.",
+      "calibration_failed": "Calibración fallida. Revisa los registros: las causas más frecuentes son un eje incorrecto, un sensor que no responde, o el aire acondicionado apagado.",
+      "flap_not_configured": "El sensor de inclinación de la lama no está configurado."
+    }
+  },
+  "selector": {
+    "flap_axis": {
+      "options": {
+        "x": "Eje X",
+        "y": "Eje Y",
+        "z": "Eje Z"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "flap_calibration": {
+        "state": {
+          "uncalibrated": "Sin calibrar",
+          "calibrating": "Calibrando",
+          "calibrated": "Calibrada",
+          "error": "Error"
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "flap_ac_off": {
+      "message": "El aire acondicionado está apagado: la lama no se puede posicionar."
+    },
+    "flap_not_calibrated": {
+      "message": "La lama todavía no está calibrada. Ejecuta primero la calibración."
+    }
+  },
+  "services": {
+    "set_flap_angle": {
+      "name": "Fijar ángulo de la lama",
+      "description": "Lleva la lama a un ángulo absoluto, dentro de los límites calibrados.",
+      "fields": {
+        "angle": {
+          "name": "Ángulo",
+          "description": "Ángulo objetivo en grados, según lo informa el sensor de inclinación."
+        }
+      }
+    },
+    "calibrate_flap": {
+      "name": "Calibrar lama",
+      "description": "Ejecuta la calibración automática para determinar los topes y el tiempo de recorrido. Tarda entre 3 y 5 minutos.",
+      "fields": {}
+    },
+    "home_flap": {
+      "name": "Recalibrar posición de la lama",
+      "description": "Resincroniza la posición conocida de la lama deteniéndola y leyendo el sensor de inclinación.",
+      "fields": {}
+    }
+  }
+}

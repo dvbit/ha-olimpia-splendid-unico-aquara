@@ -5,6 +5,7 @@ import time
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -27,7 +28,12 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: OlimpiaCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([OlimpiaFlapToggleButton(coordinator, entry)])
+    entities: list[ButtonEntity] = [OlimpiaFlapToggleButton(coordinator, entry)]
+    # Calibrazione: disponibile solo con sensore di inclinazione configurato
+    # (spec R2). Ripetibile in qualsiasi momento.
+    if coordinator.flap is not None:
+        entities.append(OlimpiaFlapCalibrateButton(coordinator, entry))
+    async_add_entities(entities)
 
 
 class OlimpiaFlapToggleButton(CoordinatorEntity[OlimpiaCoordinator], ButtonEntity):
@@ -56,3 +62,32 @@ class OlimpiaFlapToggleButton(CoordinatorEntity[OlimpiaCoordinator], ButtonEntit
             return
         self._last_press = now
         await self.coordinator.async_send_command("toggle_flap")
+
+
+class OlimpiaFlapCalibrateButton(CoordinatorEntity[OlimpiaCoordinator], ButtonEntity):
+    """Avvia la calibrazione automatica dell'aletta (spec R2).
+
+    La procedura dura alcuni minuti e muove ripetutamente l'aletta: viene
+    quindi eseguita in un task separato, senza bloccare la service call.
+    """
+
+    _attr_has_entity_name = True
+    # Nome hardcoded in inglese: evita entity_id dipendenti dalla lingua.
+    _attr_name = "Calibrate flap"
+    _attr_icon = "mdi:tune-variant"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self, coordinator: OlimpiaCoordinator, entry: ConfigEntry
+    ) -> None:
+        super().__init__(coordinator)
+        creds = entry.data.get("credentials", {})
+        device_uid = creds.get("device_uid", entry.entry_id)
+        self._attr_unique_id = f"{device_uid}_flap_calibrate"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, device_uid)},
+        )
+
+    async def async_press(self) -> None:
+        _LOGGER.info("Flap calibration requested from button entity")
+        self.hass.async_create_task(self.coordinator.flap.async_calibrate())

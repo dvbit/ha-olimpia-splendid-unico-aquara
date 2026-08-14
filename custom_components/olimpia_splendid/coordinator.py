@@ -10,7 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DOMAIN, SCAN_INTERVAL
+from .const import DOMAIN, MAX_MOVE_DURATION, SCAN_INTERVAL
 from .olimpia.client import OlimpiaClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -51,6 +51,27 @@ class OlimpiaCoordinator(DataUpdateCoordinator):
         self._pending_batch: dict | None = None
         self._batch_future: asyncio.Future | None = None
         self._batch_handle: asyncio.TimerHandle | None = None
+        # Controller aletta, valorizzato da async_setup_entry solo se il
+        # sensore di inclinazione e' configurato (spec R1).
+        self.flap = None
+        # Snapshot delle opzioni strutturali: distingue un cambio di
+        # configurazione da un semplice salvataggio della calibrazione.
+        from .const import (
+            CONF_FLAP_ANGLE_ENTITY,
+            CONF_FLAP_AXIS,
+            CONF_FLAP_INVERT,
+            CONF_FLAP_SENSOR_DEVICE,
+        )
+
+        self.options_snapshot = {
+            key: entry.options.get(key)
+            for key in (
+                CONF_FLAP_SENSOR_DEVICE,
+                CONF_FLAP_AXIS,
+                CONF_FLAP_ANGLE_ENTITY,
+                CONF_FLAP_INVERT,
+            )
+        }
 
     # --- Persistenza counter ---
 
@@ -234,6 +255,75 @@ class OlimpiaCoordinator(DataUpdateCoordinator):
                 return result
             finally:
                 client.disconnect()
+
+    # --- Movimento flap a tempo (spec R3) ---
+
+    async def async_flap_move(self, duration: float) -> float | None:
+        """Muove l'aletta per `duration` secondi.
+
+        Ritorna il tempo di moto effettivamente misurato, o None in caso di
+        errore. La precisione temporale e' critica: vedi _sync_flap_move.
+        """
+        try:
+            return await self.hass.async_add_executor_job(
+                self._sync_flap_move, duration
+            )
+        except Exception as err:
+            _LOGGER.warning("Flap move (%.2fs) failed: %s", duration, err)
+            return None
+
+    def _sync_flap_move(self, duration: float) -> float:
+        """toggle → attesa → toggle in UNA SOLA sessione TCP.
+
+        Motivazione (spec R3): ogni sessione costa connect+auth (1-3 s). Due
+        comandi in sessioni separate introdurrebbero un errore dello stesso
+        ordine di grandezza della corsa da misurare (5-15 s). Con una sola
+        sessione la latenza residua e' identica sui due toggle e si annulla
+        nella differenza, perche' il tempo di moto viene misurato fra i due
+        *inizi* di comando, non fra le due risposte.
+        """
+        duration = max(0.0, min(duration, MAX_MOVE_DURATION))
+        with self._tcp_lock:
+            client = self._connect_and_auth(for_command=True)
+            fallback_needed = False
+            try:
+                t_start = _time.monotonic()
+                if not client.toggle_flap():
+                    raise ConnectionError("flap start toggle rejected by device")
+                overhead = _time.monotonic() - t_start
+                _time.sleep(max(0.0, duration - overhead))
+                t_stop = _time.monotonic()
+                stopped = client.toggle_flap()
+                measured = t_stop - t_start
+                self._last_command_time = _time.monotonic()
+                if not stopped:
+                    fallback_needed = True
+                _LOGGER.debug(
+                    "Flap move: requested=%.2fs measured=%.2fs overhead=%.2fs",
+                    duration,
+                    measured,
+                    overhead,
+                )
+            finally:
+                client.disconnect()
+
+        if fallback_needed:
+            # Sessione degradata: l'aletta potrebbe essere ancora in moto.
+            # Riproviamo lo stop in una sessione pulita; la misura resta
+            # valida solo in via approssimativa.
+            _LOGGER.warning(
+                "Flap stop toggle failed inside the move session — "
+                "retrying stop in a new session (timing may be inaccurate)"
+            )
+            with self._tcp_lock:
+                retry_client = self._connect_and_auth(for_command=True)
+                try:
+                    retry_client.toggle_flap()
+                    self._last_command_time = _time.monotonic()
+                finally:
+                    retry_client.disconnect()
+
+        return measured
 
     # --- Coalescing settaggi climate (issue #12) ---
 

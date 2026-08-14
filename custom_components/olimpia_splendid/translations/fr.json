@@ -1,0 +1,149 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Olimpia Splendid Unico",
+        "description": "Choisissez comment ajouter votre appareil.",
+        "menu_options": {
+          "ble_scan": "Nouvel appareil — configuration BLE (recommandé)",
+          "manual_ip": "Appareil déjà configuré (saisir l'IP)"
+        }
+      },
+      "manual_ip": {
+        "title": "Connexion manuelle",
+        "description": "Saisissez l'IP de l'appareil. Vous pouvez coller le JSON d'identifiants généré par l'outil BLE (~/.olimpia/IP.json), ou laisser vide pour le charger depuis le disque.",
+        "data": {
+          "host": "Adresse IP",
+          "port": "Port",
+          "credentials_json": "JSON d'identifiants (facultatif)"
+        }
+      },
+      "ble_scan": {
+        "title": "Recherche BLE",
+        "description": "Sélectionnez l'appareil Olimpia Splendid détecté par Bluetooth.",
+        "data": {
+          "ble_device": "Appareil"
+        }
+      },
+      "ble_pin": {
+        "title": "Appairage BLE",
+        "description": "Saisissez le code PIN de l'appareil et les identifiants WiFi.",
+        "data": {
+          "pin": "PIN de l'appareil",
+          "ssid": "SSID WiFi",
+          "wifi_password": "Mot de passe WiFi"
+        }
+      },
+      "ble_pairing": {
+        "title": "Appairage en cours",
+        "description": "Appairage BLE et configuration WiFi en cours. Cela peut prendre jusqu'à 60 secondes."
+      },
+      "flap_sensor": {
+        "title": "Capteur d'inclinaison du volet (facultatif)",
+        "description": "Sélectionnez le capteur de vibration/inclinaison collé sur le volet et l'axe à surveiller. Laissez vide pour ignorer : l'intégration fonctionnera quand même, mais uniquement avec la bascule aveugle de l'oscillation. Après la configuration, lancez l'étalonnage depuis les options de l'intégration.",
+        "data": {
+          "flap_sensor_device": "Appareil capteur d'inclinaison",
+          "flap_axis": "Axe surveillé",
+          "flap_invert": "Inverser le sens (angle maximal = fermé)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Impossible de se connecter à l'appareil",
+      "invalid_auth": "Échec de l'authentification",
+      "no_credentials": "Aucun identifiant trouvé. Exécutez d'abord l'outil d'appairage BLE (voir tools/ dans le dépôt), puis collez le contenu JSON ci-dessus ou copiez le fichier dans ~/.olimpia/ sur votre machine HA.",
+      "invalid_credentials_json": "JSON d'identifiants invalide. Collez le contenu complet du fichier ~/.olimpia/IP.json généré par l'outil d'appairage BLE.",
+      "ble_no_devices": "Aucun appareil Olimpia Splendid détecté en BLE",
+      "ble_pairing_failed": "Échec de l'appairage BLE",
+      "angle_entity_not_found": "Aucune entité d'angle trouvée sur cet appareil pour l'axe sélectionné. Vérifiez que le capteur expose angle_x / angle_y / angle_z.",
+      "unknown": "Erreur inconnue"
+    },
+    "abort": {
+      "already_configured": "Appareil déjà configuré",
+      "ble_pairing_failed": "Échec de l'appairage BLE. Vérifiez que l'appareil est en mode appairage et réessayez."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options Olimpia Splendid Unico",
+        "description": "Choisissez ce que vous souhaitez faire.",
+        "menu_options": {
+          "flap_sensor": "Capteur d'inclinaison du volet",
+          "calibrate": "Étalonner le volet"
+        }
+      },
+      "flap_sensor": {
+        "title": "Capteur d'inclinaison du volet (facultatif)",
+        "description": "Modifiez l'appareil capteur ou l'axe surveillé. Changer de capteur annule l'étalonnage existant.",
+        "data": {
+          "flap_sensor_device": "Appareil capteur d'inclinaison",
+          "flap_axis": "Axe surveillé",
+          "flap_invert": "Inverser le sens (angle maximal = fermé)"
+        }
+      }
+    },
+    "progress": {
+      "calibrating": "Étalonnage en cours. Le volet va bouger à plusieurs reprises : comptez environ 3 à 5 minutes. N'utilisez pas le climatiseur pendant ce temps."
+    },
+    "error": {
+      "angle_entity_not_found": "Aucune entité d'angle trouvée sur cet appareil pour l'axe sélectionné. Vérifiez que le capteur expose angle_x / angle_y / angle_z."
+    },
+    "abort": {
+      "calibration_done": "Étalonnage terminé. Les butées et le temps de course ont été enregistrés.",
+      "calibration_failed": "Échec de l'étalonnage. Consultez les journaux : les causes les plus fréquentes sont un mauvais axe, un capteur qui ne répond pas, ou le climatiseur éteint.",
+      "flap_not_configured": "Le capteur d'inclinaison du volet n'est pas configuré."
+    }
+  },
+  "selector": {
+    "flap_axis": {
+      "options": {
+        "x": "Axe X",
+        "y": "Axe Y",
+        "z": "Axe Z"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "flap_calibration": {
+        "state": {
+          "uncalibrated": "Non étalonné",
+          "calibrating": "Étalonnage en cours",
+          "calibrated": "Étalonné",
+          "error": "Erreur"
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "flap_ac_off": {
+      "message": "Le climatiseur est éteint : le volet ne peut pas être positionné."
+    },
+    "flap_not_calibrated": {
+      "message": "Le volet n'est pas encore étalonné. Lancez d'abord l'étalonnage."
+    }
+  },
+  "services": {
+    "set_flap_angle": {
+      "name": "Régler l'angle du volet",
+      "description": "Amène le volet à un angle absolu, dans les limites étalonnées.",
+      "fields": {
+        "angle": {
+          "name": "Angle",
+          "description": "Angle cible en degrés, tel que rapporté par le capteur d'inclinaison."
+        }
+      }
+    },
+    "calibrate_flap": {
+      "name": "Étalonner le volet",
+      "description": "Lance l'étalonnage automatique pour déterminer les butées et le temps de course. Dure environ 3 à 5 minutes.",
+      "fields": {}
+    },
+    "home_flap": {
+      "name": "Recaler le volet",
+      "description": "Resynchronise la position connue du volet en l'arrêtant et en lisant le capteur d'inclinaison.",
+      "fields": {}
+    }
+  }
+}

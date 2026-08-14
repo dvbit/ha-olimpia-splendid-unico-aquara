@@ -37,6 +37,15 @@
       "ble_pairing": {
         "title": "Pairing in corso",
         "description": "Pairing BLE e configurazione WiFi in corso. Potrebbe richiedere fino a 60 secondi."
+      },
+      "flap_sensor": {
+        "title": "Sensore di inclinazione aletta (opzionale)",
+        "description": "Seleziona il sensore di vibrazione/inclinazione incollato sull'aletta e l'asse da monitorare. Lascia vuoto per saltare: l'integrazione continuera' a funzionare, ma solo con il toggle cieco dell'oscillazione. Dopo la configurazione, avvia la calibrazione dalle opzioni dell'integrazione.",
+        "data": {
+          "flap_sensor_device": "Dispositivo sensore di inclinazione",
+          "flap_axis": "Asse monitorato",
+          "flap_invert": "Inverti direzione (angolo massimo = chiusa)"
+        }
       }
     },
     "error": {
@@ -46,11 +55,95 @@
       "invalid_credentials_json": "JSON credenziali non valido. Incolla il contenuto completo del file ~/.olimpia/IP.json generato dal tool di pairing BLE.",
       "ble_no_devices": "Nessun dispositivo Olimpia Splendid trovato via BLE",
       "ble_pairing_failed": "Pairing BLE fallito",
+      "angle_entity_not_found": "Nessuna entita' angolo trovata su quel dispositivo per l'asse selezionato. Verifica che il sensore esponga angle_x / angle_y / angle_z.",
       "unknown": "Errore sconosciuto"
     },
     "abort": {
       "already_configured": "Dispositivo gia' configurato",
       "ble_pairing_failed": "Pairing BLE fallito. Verifica che il dispositivo sia in modalita' pairing e riprova."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opzioni Olimpia Splendid Unico",
+        "description": "Scegli cosa vuoi fare.",
+        "menu_options": {
+          "flap_sensor": "Sensore di inclinazione aletta",
+          "calibrate": "Calibra l'aletta"
+        }
+      },
+      "flap_sensor": {
+        "title": "Sensore di inclinazione aletta (opzionale)",
+        "description": "Modifica il dispositivo sensore o l'asse monitorato. Il cambio di sensore annulla la calibrazione esistente.",
+        "data": {
+          "flap_sensor_device": "Dispositivo sensore di inclinazione",
+          "flap_axis": "Asse monitorato",
+          "flap_invert": "Inverti direzione (angolo massimo = chiusa)"
+        }
+      }
+    },
+    "progress": {
+      "calibrating": "Calibrazione in corso. L'aletta si muovera' ripetutamente: servono circa 3-5 minuti. Non usare il condizionatore nel frattempo."
+    },
+    "error": {
+      "angle_entity_not_found": "Nessuna entita' angolo trovata su quel dispositivo per l'asse selezionato. Verifica che il sensore esponga angle_x / angle_y / angle_z."
+    },
+    "abort": {
+      "calibration_done": "Calibrazione completata. Estremi di corsa e tempo di corsa sono stati salvati.",
+      "calibration_failed": "Calibrazione fallita. Controlla i log: le cause piu' frequenti sono un asse sbagliato, un sensore che non risponde, o il condizionatore spento.",
+      "flap_not_configured": "Il sensore di inclinazione dell'aletta non e' configurato."
+    }
+  },
+  "selector": {
+    "flap_axis": {
+      "options": {
+        "x": "Asse X",
+        "y": "Asse Y",
+        "z": "Asse Z"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "flap_calibration": {
+        "state": {
+          "uncalibrated": "Non calibrata",
+          "calibrating": "Calibrazione in corso",
+          "calibrated": "Calibrata",
+          "error": "Errore"
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "flap_ac_off": {
+      "message": "Il condizionatore e' spento: l'aletta non puo' essere posizionata."
+    },
+    "flap_not_calibrated": {
+      "message": "L'aletta non e' ancora calibrata. Esegui prima la calibrazione."
+    }
+  },
+  "services": {
+    "set_flap_angle": {
+      "name": "Imposta angolo aletta",
+      "description": "Porta l'aletta a un angolo assoluto, entro i limiti calibrati.",
+      "fields": {
+        "angle": {
+          "name": "Angolo",
+          "description": "Angolo target in gradi, come riportato dal sensore di inclinazione."
+        }
+      }
+    },
+    "calibrate_flap": {
+      "name": "Calibra aletta",
+      "description": "Esegue la calibrazione automatica per determinare gli estremi e il tempo di corsa. Richiede circa 3-5 minuti.",
+      "fields": {}
+    },
+    "home_flap": {
+      "name": "Riallinea aletta",
+      "description": "Risincronizza la posizione nota dell'aletta fermandola e leggendo il sensore di inclinazione.",
+      "fields": {}
     }
   }
 }

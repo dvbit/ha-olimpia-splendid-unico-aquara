@@ -1,0 +1,149 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Olimpia Splendid Unico",
+        "description": "Wähle aus, wie das Gerät hinzugefügt werden soll.",
+        "menu_options": {
+          "ble_scan": "Neues Gerät — BLE-Einrichtung (empfohlen)",
+          "manual_ip": "Bereits konfiguriertes Gerät (IP eingeben)"
+        }
+      },
+      "manual_ip": {
+        "title": "Manuelle Verbindung",
+        "description": "Gib die IP des Geräts ein. Du kannst das vom BLE-Tool erzeugte Zugangsdaten-JSON (~/.olimpia/IP.json) einfügen oder das Feld leer lassen, um es von der Festplatte zu laden.",
+        "data": {
+          "host": "IP-Adresse",
+          "port": "Port",
+          "credentials_json": "Zugangsdaten-JSON (optional)"
+        }
+      },
+      "ble_scan": {
+        "title": "BLE-Suche",
+        "description": "Wähle das über Bluetooth gefundene Olimpia-Splendid-Gerät aus.",
+        "data": {
+          "ble_device": "Gerät"
+        }
+      },
+      "ble_pin": {
+        "title": "BLE-Kopplung",
+        "description": "Gib die Geräte-PIN und die WLAN-Zugangsdaten ein.",
+        "data": {
+          "pin": "Geräte-PIN",
+          "ssid": "WLAN-SSID",
+          "wifi_password": "WLAN-Passwort"
+        }
+      },
+      "ble_pairing": {
+        "title": "Kopplung läuft",
+        "description": "BLE-Kopplung und WLAN-Konfiguration laufen. Dies kann bis zu 60 Sekunden dauern."
+      },
+      "flap_sensor": {
+        "title": "Neigungssensor der Lamelle (optional)",
+        "description": "Wähle den auf die Lamelle geklebten Vibrations-/Neigungssensor und die zu überwachende Achse. Leer lassen, um den Schritt zu überspringen: die Integration funktioniert weiterhin, aber nur mit dem blinden Schwenk-Umschalter. Starte die Kalibrierung nach der Einrichtung über die Integrationsoptionen.",
+        "data": {
+          "flap_sensor_device": "Neigungssensor-Gerät",
+          "flap_axis": "Überwachte Achse",
+          "flap_invert": "Richtung umkehren (maximaler Winkel = geschlossen)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung zum Gerät nicht möglich",
+      "invalid_auth": "Authentifizierung fehlgeschlagen",
+      "no_credentials": "Keine Zugangsdaten gefunden. Führe zuerst das BLE-Kopplungstool aus (siehe tools/ im Repository), füge dann den JSON-Inhalt oben ein oder kopiere die Datei nach ~/.olimpia/ auf deinem HA-Rechner.",
+      "invalid_credentials_json": "Ungültiges Zugangsdaten-JSON. Füge den vollständigen Inhalt der vom BLE-Kopplungstool erzeugten Datei ~/.olimpia/IP.json ein.",
+      "ble_no_devices": "Keine Olimpia-Splendid-Geräte über BLE gefunden",
+      "ble_pairing_failed": "BLE-Kopplung fehlgeschlagen",
+      "angle_entity_not_found": "Auf diesem Gerät wurde keine Winkel-Entität für die gewählte Achse gefunden. Prüfe, ob der Sensor angle_x / angle_y / angle_z bereitstellt.",
+      "unknown": "Unbekannter Fehler"
+    },
+    "abort": {
+      "already_configured": "Gerät bereits konfiguriert",
+      "ble_pairing_failed": "BLE-Kopplung fehlgeschlagen. Prüfe, ob sich das Gerät im Kopplungsmodus befindet, und versuche es erneut."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Optionen für Olimpia Splendid Unico",
+        "description": "Wähle aus, was du tun möchtest.",
+        "menu_options": {
+          "flap_sensor": "Neigungssensor der Lamelle",
+          "calibrate": "Lamelle kalibrieren"
+        }
+      },
+      "flap_sensor": {
+        "title": "Neigungssensor der Lamelle (optional)",
+        "description": "Ändere das Sensorgerät oder die überwachte Achse. Ein Sensorwechsel verwirft die vorhandene Kalibrierung.",
+        "data": {
+          "flap_sensor_device": "Neigungssensor-Gerät",
+          "flap_axis": "Überwachte Achse",
+          "flap_invert": "Richtung umkehren (maximaler Winkel = geschlossen)"
+        }
+      }
+    },
+    "progress": {
+      "calibrating": "Kalibrierung läuft. Die Lamelle bewegt sich wiederholt: das dauert etwa 3 bis 5 Minuten. Bediene das Klimagerät in dieser Zeit nicht."
+    },
+    "error": {
+      "angle_entity_not_found": "Auf diesem Gerät wurde keine Winkel-Entität für die gewählte Achse gefunden. Prüfe, ob der Sensor angle_x / angle_y / angle_z bereitstellt."
+    },
+    "abort": {
+      "calibration_done": "Kalibrierung abgeschlossen. Endlagen und Laufzeit wurden gespeichert.",
+      "calibration_failed": "Kalibrierung fehlgeschlagen. Prüfe die Protokolle: die häufigsten Ursachen sind eine falsche Achse, ein nicht antwortender Sensor oder ein ausgeschaltetes Klimagerät.",
+      "flap_not_configured": "Der Neigungssensor der Lamelle ist nicht konfiguriert."
+    }
+  },
+  "selector": {
+    "flap_axis": {
+      "options": {
+        "x": "X-Achse",
+        "y": "Y-Achse",
+        "z": "Z-Achse"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "flap_calibration": {
+        "state": {
+          "uncalibrated": "Nicht kalibriert",
+          "calibrating": "Kalibrierung läuft",
+          "calibrated": "Kalibriert",
+          "error": "Fehler"
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "flap_ac_off": {
+      "message": "Das Klimagerät ist ausgeschaltet: die Lamelle kann nicht positioniert werden."
+    },
+    "flap_not_calibrated": {
+      "message": "Die Lamelle ist noch nicht kalibriert. Führe zuerst die Kalibrierung durch."
+    }
+  },
+  "services": {
+    "set_flap_angle": {
+      "name": "Lamellenwinkel setzen",
+      "description": "Fährt die Lamelle auf einen absoluten Winkel innerhalb der kalibrierten Grenzen.",
+      "fields": {
+        "angle": {
+          "name": "Winkel",
+          "description": "Zielwinkel in Grad, wie vom Neigungssensor gemeldet."
+        }
+      }
+    },
+    "calibrate_flap": {
+      "name": "Lamelle kalibrieren",
+      "description": "Startet die automatische Kalibrierung zur Ermittlung der Endlagen und der Laufzeit. Dauert etwa 3 bis 5 Minuten.",
+      "fields": {}
+    },
+    "home_flap": {
+      "name": "Lamellenposition abgleichen",
+      "description": "Synchronisiert die bekannte Lamellenposition, indem sie gestoppt und der Neigungssensor ausgelesen wird.",
+      "fields": {}
+    }
+  }
+}

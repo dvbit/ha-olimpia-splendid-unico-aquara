@@ -8,12 +8,72 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    OptionsFlow,
+)
+from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers.selector import (
+    BooleanSelector,
+    DeviceSelector,
+    DeviceSelectorConfig,
+    EntityFilterSelectorConfig,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 
-from .const import DOMAIN, DEFAULT_PORT
+from .const import (
+    CONF_CALIBRATION,
+    CONF_FLAP_ANGLE_ENTITY,
+    CONF_FLAP_AXIS,
+    CONF_FLAP_INVERT,
+    CONF_FLAP_SENSOR_DEVICE,
+    DEFAULT_PORT,
+    DOMAIN,
+    FLAP_AXES,
+)
+from .flap import resolve_angle_entity
 from .olimpia.client import OlimpiaClient
 from .olimpia.credentials import load_credentials
+
+
+def flap_sensor_schema(defaults: dict | None = None) -> vol.Schema:
+    """Schema dello step di configurazione del sensore aletta (spec R1).
+
+    Tutti i campi sono opzionali: lasciando vuoto il device il controllo di
+    posizione resta disattivato e l'integrazione espone solo il toggle cieco.
+    """
+    defaults = defaults or {}
+    device_default = defaults.get(CONF_FLAP_SENSOR_DEVICE)
+    device_field = (
+        vol.Optional(CONF_FLAP_SENSOR_DEVICE, description={"suggested_value": device_default})
+        if device_default
+        else vol.Optional(CONF_FLAP_SENSOR_DEVICE)
+    )
+    return vol.Schema(
+        {
+            device_field: DeviceSelector(
+                DeviceSelectorConfig(
+                    entity=[EntityFilterSelectorConfig(domain="sensor")]
+                )
+            ),
+            vol.Optional(
+                CONF_FLAP_AXIS, default=defaults.get(CONF_FLAP_AXIS, "x")
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=FLAP_AXES,
+                    translation_key="flap_axis",
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional(
+                CONF_FLAP_INVERT, default=defaults.get(CONF_FLAP_INVERT, False)
+            ): BooleanSelector(),
+        }
+    )
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,6 +91,14 @@ class OlimpiaSplendidConfigFlow(ConfigFlow, domain=DOMAIN):
         self._ble_password: str = ""
         self._pairing_task: asyncio.Task | None = None
         self._pairing_result: dict | None = None
+        # Dati dell'entry in attesa dello step opzionale sul sensore aletta
+        self._entry_data: dict | None = None
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> "OlimpiaOptionsFlow":
+        """Espone il pulsante Configura (opzioni + calibrazione)."""
+        return OlimpiaOptionsFlow()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -85,15 +153,13 @@ class OlimpiaSplendidConfigFlow(ConfigFlow, domain=DOMAIN):
                         await self.async_set_unique_id(device_uid)
                         self._abort_if_unique_id_configured()
 
-                        return self.async_create_entry(
-                            title=f"Olimpia Splendid ({host})",
-                            data={
-                                "host": host,
-                                "port": port,
-                                "credentials": creds,
-                                "device_uid": device_uid,
-                            },
-                        )
+                        self._entry_data = {
+                            "host": host,
+                            "port": port,
+                            "credentials": creds,
+                            "device_uid": device_uid,
+                        }
+                        return await self.async_step_flap_sensor()
                     else:
                         errors["base"] = "invalid_auth"
                 except (ConnectionError, OSError, socket.timeout):
@@ -222,15 +288,13 @@ class OlimpiaSplendidConfigFlow(ConfigFlow, domain=DOMAIN):
             await self.async_set_unique_id(device_uid)
             self._abort_if_unique_id_configured()
 
-            return self.async_create_entry(
-                title=f"Olimpia Splendid ({host})",
-                data={
-                    "host": host,
-                    "port": DEFAULT_PORT,
-                    "credentials": creds,
-                    "device_uid": device_uid,
-                },
-            )
+            self._entry_data = {
+                "host": host,
+                "port": DEFAULT_PORT,
+                "credentials": creds,
+                "device_uid": device_uid,
+            }
+            return await self.async_step_flap_sensor()
 
         return self.async_abort(reason="ble_pairing_failed")
 
@@ -279,3 +343,164 @@ class OlimpiaSplendidConfigFlow(ConfigFlow, domain=DOMAIN):
         finally:
             await ble.disconnect()
             _LOGGER.debug("BLE disconnected")
+
+    # --- Step opzionale: sensore di inclinazione aletta (spec R1) ---
+
+    async def async_step_flap_sensor(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Seleziona il device del sensore tilt e l'asse da monitorare.
+
+        Lo step e' saltabile: senza sensore l'integrazione funziona come
+        prima (solo toggle cieco dell'oscillazione).
+        """
+        errors: dict[str, str] = {}
+        assert self._entry_data is not None
+        host = self._entry_data["host"]
+
+        if user_input is not None:
+            options, error = _build_flap_options(self.hass, user_input)
+            if error:
+                errors["base"] = error
+            else:
+                if options:
+                    _LOGGER.info(
+                        "Flap tilt sensor configured: %s (axis %s)",
+                        options[CONF_FLAP_ANGLE_ENTITY],
+                        options[CONF_FLAP_AXIS],
+                    )
+                else:
+                    _LOGGER.debug("Flap tilt sensor step skipped by user")
+                return self.async_create_entry(
+                    title=f"Olimpia Splendid ({host})",
+                    data=self._entry_data,
+                    options=options,
+                )
+
+        return self.async_show_form(
+            step_id="flap_sensor",
+            data_schema=flap_sensor_schema(),
+            errors=errors,
+        )
+
+
+def _build_flap_options(hass, user_input: dict[str, Any]) -> tuple[dict, str | None]:
+    """Valida l'input del sensore aletta e costruisce il blocco opzioni.
+
+    Ritorna (opzioni, codice_errore). Opzioni vuote = sensore non
+    configurato (step saltato dall'utente).
+    """
+    device_id = user_input.get(CONF_FLAP_SENSOR_DEVICE)
+    if not device_id:
+        return {}, None
+
+    axis = user_input.get(CONF_FLAP_AXIS, "x")
+    angle_entity = resolve_angle_entity(hass, device_id, axis)
+    if not angle_entity:
+        _LOGGER.warning(
+            "No angle_%s entity found on device %s", axis, device_id
+        )
+        return {}, "angle_entity_not_found"
+
+    return {
+        CONF_FLAP_SENSOR_DEVICE: device_id,
+        CONF_FLAP_AXIS: axis,
+        CONF_FLAP_ANGLE_ENTITY: angle_entity,
+        CONF_FLAP_INVERT: bool(user_input.get(CONF_FLAP_INVERT, False)),
+    }, None
+
+
+class OlimpiaOptionsFlow(OptionsFlow):
+    """Opzioni: riconfigurazione sensore e ricalibrazione (spec R1/R2).
+
+    NOTA: non assegnare mai self.config_entry qui — sovrascriverebbe la
+    proprieta' fornita da Home Assistant e il pulsante "Configura" non
+    comparirebbe.
+    """
+
+    def __init__(self) -> None:
+        self._calibration_task: asyncio.Task | None = None
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Menu principale delle opzioni."""
+        menu_options = ["flap_sensor"]
+        if self.config_entry.options.get(CONF_FLAP_ANGLE_ENTITY):
+            menu_options.append("calibrate")
+        return self.async_show_menu(step_id="init", menu_options=menu_options)
+
+    async def async_step_flap_sensor(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Riconfigura device e asse del sensore di inclinazione."""
+        errors: dict[str, str] = {}
+        current = dict(self.config_entry.options)
+
+        if user_input is not None:
+            options, error = _build_flap_options(self.hass, user_input)
+            if error:
+                errors["base"] = error
+            else:
+                new_options = dict(options)
+                if options and current.get(CONF_FLAP_ANGLE_ENTITY) == options.get(
+                    CONF_FLAP_ANGLE_ENTITY
+                ):
+                    # Stesso sensore: la calibrazione esistente resta valida
+                    if CONF_CALIBRATION in current:
+                        new_options[CONF_CALIBRATION] = current[CONF_CALIBRATION]
+                else:
+                    _LOGGER.info(
+                        "Flap sensor changed — previous calibration discarded"
+                    )
+                return self.async_create_entry(title="", data=new_options)
+
+        return self.async_show_form(
+            step_id="flap_sensor",
+            data_schema=flap_sensor_schema(current),
+            errors=errors,
+        )
+
+    # --- Calibrazione con barra di avanzamento (spec R2) ---
+
+    def _controller(self):
+        """Ritorna il FlapController attivo, se l'entry e' caricata."""
+        coordinator = self.hass.data.get(DOMAIN, {}).get(
+            self.config_entry.entry_id
+        )
+        return getattr(coordinator, "flap", None)
+
+    async def async_step_calibrate(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Esegue la calibrazione mostrando l'avanzamento."""
+        if self._calibration_task is None:
+            controller = self._controller()
+            if controller is None:
+                return self.async_abort(reason="flap_not_configured")
+            _LOGGER.info("Flap calibration requested from options flow")
+            self._calibration_task = self.hass.async_create_task(
+                controller.async_calibrate()
+            )
+            return self.async_show_progress(
+                step_id="calibrate",
+                progress_action="calibrating",
+                progress_task=self._calibration_task,
+            )
+
+        try:
+            await self._calibration_task
+        except Exception as err:  # noqa: BLE001 — l'errore e' gia' loggato
+            _LOGGER.debug("Calibration task ended with error: %s", err)
+            return self.async_show_progress_done(next_step_id="calibrate_failed")
+        return self.async_show_progress_done(next_step_id="calibrate_done")
+
+    async def async_step_calibrate_done(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        return self.async_abort(reason="calibration_done")
+
+    async def async_step_calibrate_failed(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        return self.async_abort(reason="calibration_failed")

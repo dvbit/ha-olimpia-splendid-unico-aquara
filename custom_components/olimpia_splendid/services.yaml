@@ -1,0 +1,31 @@
+# Servizi Olimpia Splendid Unico — spec R6.
+# I nomi e le descrizioni tradotti risiedono in strings.json / translations.
+
+set_flap_angle:
+  target:
+    entity:
+      integration: olimpia_splendid
+      domain: cover
+  fields:
+    angle:
+      required: true
+      example: 25
+      selector:
+        number:
+          min: -90
+          max: 90
+          step: 0.5
+          unit_of_measurement: "°"
+          mode: box
+
+calibrate_flap:
+  target:
+    entity:
+      integration: olimpia_splendid
+      domain: cover
+
+home_flap:
+  target:
+    entity:
+      integration: olimpia_splendid
+      domain: cover
